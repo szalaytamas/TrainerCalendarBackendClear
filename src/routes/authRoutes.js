@@ -5,11 +5,15 @@ const router = express.Router();
 
 router.post("/register", async (req, res) => {
   try {
-    const { email, password, forename, lastname  } = req.body;
+    const { email, password, forename, lastname, termsAccepted  } = req.body;
 
     if (!forename || !lastname) {
           return res.status(400).json({ error: "Forename and Lastname are required" });
         }
+
+        if (!termsAccepted) {
+              return res.status(400).json({ error: "A regisztrációhoz el kell fogadni az adatvédelmi irányelveket és a felhasználási feltételeket." });
+            }
 
     const user = await admin.auth().createUser({
       email,
@@ -21,6 +25,7 @@ router.post("/register", async (req, res) => {
           forename,
           lastname,
           email,
+          termsAccepted: true,
           createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
 
