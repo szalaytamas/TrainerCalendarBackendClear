@@ -9,8 +9,8 @@ const multer = require("multer");
 const path = require("path");
 
 const storage = new Storage({
-                              keyFilename: "C:/Users/szala/AndroidStudioProjects/FitnessApp/backend/service-account-file.json",
-                            });
+  credentials: JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON),
+});
 const bucket = storage.bucket("fitnessapp-48d34.firebasestorage.app");
 
 const upload = multer({
