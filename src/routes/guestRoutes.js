@@ -4,14 +4,9 @@ const admin = require("firebase-admin");
 const router = express.Router();
 const db = admin.firestore();
 
-const { Storage } = require("@google-cloud/storage");
 const multer = require("multer");
-const path = require("path");
 
-const storage = new Storage({
-  credentials: JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON),
-});
-const bucket = storage.bucket("fitnessapp-48d34.firebasestorage.app");
+const bucket = admin.storage().bucket();
 
 const upload = multer({
     storage: multer.memoryStorage(),
