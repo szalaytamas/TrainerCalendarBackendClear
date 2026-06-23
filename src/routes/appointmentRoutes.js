@@ -66,9 +66,14 @@ router.post("/", verifyToken, async (req, res) => {
     }
   });
 
-router.get("/:userId", async (req, res) => {
+router.get("/:userId", verifyToken, async (req, res) => {
   try {
     const userId = req.params.userId;
+
+    if (req.userId !== userId) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
     const snapshot = await db.collection("appointments").where("user_id", "==", userId).get();
 
     const appointments = [];
