@@ -28,14 +28,24 @@ router.post("/", verifyToken, async (req, res) => {
     };
 
     if (guest_id) {
-      const userPackageRef = db.collection("userPackages").doc(guest_id);
-      const userPackageDoc = await userPackageRef.get();
+      const packagesSnapshot = await db.collection("userPackages").doc(guest_id)
+        .collection("packages").get();
 
-      if (userPackageDoc.exists) {
-        const userPackages = userPackageDoc.data().packages || [];
-        let activePackage = userPackages.find(pkg => pkg.remainingSessions > 0);
+      if (!packagesSnapshot.empty) {
+        let activePackage = null;
+        packagesSnapshot.forEach(doc => {
+          const pkg = doc.data();
+          if (!activePackage && pkg.remainingSessions > 0) {
+            activePackage = { ...pkg, id: doc.id };
+          }
+        });
         if (!activePackage) {
-          activePackage = userPackages.find(pkg => pkg.packageId === "unlimited");
+          packagesSnapshot.forEach(doc => {
+            const pkg = doc.data();
+            if (!activePackage && pkg.packageId === "unlimited") {
+              activePackage = { ...pkg, id: doc.id };
+            }
+          });
         }
         if (activePackage) {
           newAppointment.packageId = activePackage.id;
@@ -58,11 +68,14 @@ router.get("/:userId", verifyToken, async (req, res) => {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
+    const { from, to } = req.query;
     const snapshot = await db.collection("appointments").where("user_id", "==", userId).get();
 
     const appointments = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
+      if (from && data.date < from) return;
+      if (to && data.date > to) return;
       appointments.push({
         id: doc.id,
         user_id: data.user_id,

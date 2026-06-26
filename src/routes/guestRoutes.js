@@ -67,8 +67,11 @@ router.get("/:guestId", verifyToken, async (req, res) => {
     if (!guestDoc.exists) {
       return res.status(404).json({ error: "Guest not found" });
     }
+    if (guestDoc.data().user_id !== req.userId) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
 
-    res.status(200).json(guestDoc.data());
+    res.status(200).json({ id: guestId, ...guestDoc.data() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

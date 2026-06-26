@@ -51,19 +51,19 @@ router.post("/", verifyToken, async (req, res) => {
 router.get("/user-packages/:guestId", verifyToken, async (req, res) => {
   try {
     const { guestId } = req.params;
-    const userPackageRef = db.collection("userPackages").doc(guestId);
-    const userPackageDoc = await userPackageRef.get();
+    const snapshot = await db.collection("userPackages").doc(guestId)
+      .collection("packages").get();
 
-    if (!userPackageDoc.exists) {
+    if (snapshot.empty) {
       return res.status(404).json({ error: "A vendéghez nem tartozik bérlet." });
     }
 
-    const userPackages = userPackageDoc.data().packages || [];
     const now = admin.firestore.Timestamp.now();
     const activePackages = [];
     const expiredPackages = [];
 
-    userPackages.forEach(pkg => {
+    snapshot.forEach(doc => {
+      const pkg = { id: doc.id, ...doc.data() };
       const endDate = pkg.endDate ? pkg.endDate.toDate() : null;
       const isUnlimited = pkg.packageId === "unlimited";
       const isExpiredByDate = endDate && endDate <= now.toDate();
@@ -91,35 +91,24 @@ router.put("/user-packages/:guestId", verifyToken, async (req, res) => {
       return res.status(400).json({ error: "Hiányzó vagy érvénytelen 'attended' érték" });
     }
 
-    const userPackageRef = db.collection("userPackages").doc(guestId);
-    const userPackageDoc = await userPackageRef.get();
+    const pkgRef = db.collection("userPackages").doc(guestId)
+      .collection("packages").doc(packageId);
+    const pkgDoc = await pkgRef.get();
 
-    if (!userPackageDoc.exists) {
-      return res.status(404).json({ error: "A vendéghez nem tartozik bérlet." });
-    }
-
-    let userPackages = userPackageDoc.data().packages || [];
-    let updatedPackage = null;
-
-    userPackages = userPackages.map(pkg => {
-      if (pkg.id === packageId) {
-        const isUnlimited = pkg.packageId === "unlimited";
-        const newRemainingSessions = isUnlimited
-          ? pkg.remainingSessions
-          : attended
-            ? Math.max(pkg.remainingSessions - 1, 0)
-            : Math.min(pkg.remainingSessions + 1, pkg.sessionCount);
-        updatedPackage = { ...pkg, remainingSessions: newRemainingSessions };
-        return updatedPackage;
-      }
-      return pkg;
-    });
-
-    if (!updatedPackage) {
+    if (!pkgDoc.exists) {
       return res.status(404).json({ error: "Bérlet nem található a vendégnél." });
     }
 
-    await userPackageRef.update({ packages: userPackages });
+    const pkg = pkgDoc.data();
+    const isUnlimited = pkg.packageId === "unlimited";
+    const newRemainingSessions = isUnlimited
+      ? pkg.remainingSessions
+      : attended
+        ? Math.max(pkg.remainingSessions - 1, 0)
+        : Math.min(pkg.remainingSessions + 1, pkg.sessionCount);
+
+    await pkgRef.update({ remainingSessions: newRemainingSessions });
+    const updatedPackage = { ...pkg, id: packageId, remainingSessions: newRemainingSessions };
     res.json({ message: "Bérlet frissítve!", updatedPackage });
   } catch (err) {
     res.status(500).json({ error: "Hiba a bérlet frissítésekor" });
@@ -147,12 +136,9 @@ router.post("/assignPackage", verifyToken, async (req, res) => {
       ? new Date(startDate.getTime() + packageData.durationDays * 24 * 60 * 60 * 1000)
       : null;
 
-    const userPackageRef = db.collection("userPackages").doc(guestId);
-    const userPackageDoc = await userPackageRef.get();
-
-    const newPackageId = db.collection("userPackages").doc().id;
+    const newPackageRef = db.collection("userPackages").doc(guestId)
+      .collection("packages").doc();
     const newPackage = {
-      id: newPackageId,
       packageId,
       name: packageData.name,
       sessionCount: packageData.sessionCount,
@@ -163,15 +149,9 @@ router.post("/assignPackage", verifyToken, async (req, res) => {
       remainingSessions: packageData.sessionCount
     };
 
-    if (userPackageDoc.exists) {
-      await userPackageRef.update({
-        packages: admin.firestore.FieldValue.arrayUnion(newPackage)
-      });
-    } else {
-      await userPackageRef.set({ packages: [newPackage] });
-    }
+    await newPackageRef.set(newPackage);
 
-    res.json({ message: "Bérlet sikeresen hozzárendelve!", package: newPackage });
+    res.json({ message: "Bérlet sikeresen hozzárendelve!", package: { id: newPackageRef.id, ...newPackage } });
   } catch (err) {
     res.status(500).json({ error: "Hiba a bérlet hozzárendelésekor" });
   }
@@ -230,6 +210,24 @@ router.delete("/:packageId", verifyToken, async (req, res) => {
     }
 
     await packageRef.delete();
+    res.json({ message: "Bérlet sikeresen törölve!" });
+  } catch (err) {
+    res.status(500).json({ error: "Hiba a bérlet törlésekor" });
+  }
+});
+
+router.delete("/user-packages/:guestId/:packageId", verifyToken, async (req, res) => {
+  try {
+    const { guestId, packageId } = req.params;
+    const pkgRef = db.collection("userPackages").doc(guestId)
+      .collection("packages").doc(packageId);
+    const pkgDoc = await pkgRef.get();
+
+    if (!pkgDoc.exists) {
+      return res.status(404).json({ error: "Bérlet nem található." });
+    }
+
+    await pkgRef.delete();
     res.json({ message: "Bérlet sikeresen törölve!" });
   } catch (err) {
     res.status(500).json({ error: "Hiba a bérlet törlésekor" });
