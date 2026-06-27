@@ -73,7 +73,7 @@ router.get("/:userId", verifyToken, async (req, res) => {
     let query = db.collection("appointments").where("user_id", "==", userId);
     if (from) query = query.where("date", ">=", from);
     if (to)   query = query.where("date", "<=", to);
-    query = query.orderBy("date", "asc");
+    query = query.orderBy("date", "asc").limit(500);
 
     const snapshot = await query.get();
 

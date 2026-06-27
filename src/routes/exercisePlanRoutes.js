@@ -48,6 +48,7 @@ router.get("/guest/:guestId", verifyToken, async (req, res) => {
     const snapshot = await db.collection("exercisePlans")
       .where("guest_id", "==", guestId)
       .where("user_id", "==", req.userId)
+      .limit(50)
       .get();
 
     const plans = [];
@@ -67,6 +68,7 @@ router.get("/all/:workoutDay", verifyToken, async (req, res) => {
     const snapshot = await db.collection("exercisePlans")
       .where("workout_day", "==", workoutDay)
       .where("user_id", "==", req.userId)
+      .limit(50)
       .get();
 
     if (snapshot.empty) {
@@ -91,6 +93,7 @@ router.get("/:guestId/:workoutDay", verifyToken, async (req, res) => {
       .where("guest_id", "==", guestId)
       .where("user_id", "==", req.userId)
       .where("workout_day", "==", workoutDay)
+      .limit(10)
       .get();
 
     const plans = [];

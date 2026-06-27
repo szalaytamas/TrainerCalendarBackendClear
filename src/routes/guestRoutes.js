@@ -48,7 +48,7 @@ router.post("/:guestId/upload-photo", verifyToken, upload.single("profileImage")
 
 router.get("/", verifyToken, async (req, res) => {
   try {
-    const snapshot = await db.collection("guests").where("user_id", "==", req.userId).get();
+    const snapshot = await db.collection("guests").where("user_id", "==", req.userId).limit(100).get();
     const guests = [];
     snapshot.forEach((doc) => {
       guests.push({ id: doc.id, ...doc.data() });
@@ -119,6 +119,7 @@ router.get("/:guestId/appointments", verifyToken, async (req, res) => {
 
     const snapshot = await db.collection("appointments")
       .where("guest_id", "==", guestId)
+      .limit(200)
       .get();
 
     const appointments = [];

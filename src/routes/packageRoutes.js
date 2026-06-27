@@ -7,7 +7,7 @@ const db = admin.firestore();
 
 router.get("/", verifyToken, async (req, res) => {
   try {
-    const snapshot = await db.collection("packages").get();
+    const snapshot = await db.collection("packages").limit(50).get();
     const packages = snapshot.docs.map(doc => ({
       id: doc.id,
       name: doc.data().name,
@@ -52,7 +52,7 @@ router.get("/user-packages/:guestId", verifyToken, async (req, res) => {
   try {
     const { guestId } = req.params;
     const snapshot = await db.collection("userPackages").doc(guestId)
-      .collection("packages").get();
+      .collection("packages").limit(50).get();
 
     if (snapshot.empty) {
       return res.status(404).json({ error: "A vendéghez nem tartozik bérlet." });
