@@ -69,13 +69,17 @@ router.get("/:userId", verifyToken, async (req, res) => {
     }
 
     const { from, to } = req.query;
-    const snapshot = await db.collection("appointments").where("user_id", "==", userId).get();
+
+    let query = db.collection("appointments").where("user_id", "==", userId);
+    if (from) query = query.where("date", ">=", from);
+    if (to)   query = query.where("date", "<=", to);
+    query = query.orderBy("date", "asc");
+
+    const snapshot = await query.get();
 
     const appointments = [];
     snapshot.forEach((doc) => {
       const data = doc.data();
-      if (from && data.date < from) return;
-      if (to && data.date > to) return;
       appointments.push({
         id: doc.id,
         user_id: data.user_id,
@@ -136,17 +140,6 @@ router.delete("/:id", verifyToken, async (req, res) => {
     }
     if (doc.data().user_id !== req.userId) {
       return res.status(403).json({ error: "Unauthorized to delete this appointment" });
-    }
-
-    const guestId = doc.data().guest_id;
-    if (guestId) {
-      const guestRef = db.collection("guests").doc(guestId);
-      const guestDoc = await guestRef.get();
-      if (guestDoc.exists) {
-        let appointments = guestDoc.data().appointments || [];
-        appointments = appointments.filter(date => date !== doc.data().date);
-        await guestRef.update({ appointments });
-      }
     }
 
     await appointmentRef.delete();
