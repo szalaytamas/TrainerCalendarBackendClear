@@ -131,22 +131,24 @@ router.post("/assignPackage", verifyToken, async (req, res) => {
     }
 
     const packageData = packageDoc.data();
+    const sessionCount = (typeof packageData.sessionCount === "number" && packageData.sessionCount > 0)
+      ? packageData.sessionCount : 1;
     const startDate = new Date();
     const endDate = packageData.durationDays
-      ? new Date(startDate.getTime() + packageData.durationDays * 24 * 60 * 60 * 1000)
+      ? new Date(startDate.getTime() + Number(packageData.durationDays) * 24 * 60 * 60 * 1000)
       : null;
 
     const newPackageRef = db.collection("userPackages").doc(guestId)
       .collection("packages").doc();
     const newPackage = {
       packageId,
-      name: packageData.name,
-      sessionCount: packageData.sessionCount,
-      durationDays: packageData.durationDays,
-      description: packageData.description,
+      name: packageData.name || "",
+      sessionCount,
+      durationDays: packageData.durationDays || null,
+      description: packageData.description || "",
       startDate: admin.firestore.Timestamp.fromDate(startDate),
       endDate: endDate ? admin.firestore.Timestamp.fromDate(endDate) : null,
-      remainingSessions: packageData.sessionCount
+      remainingSessions: sessionCount
     };
 
     await newPackageRef.set(newPackage);
