@@ -9,38 +9,74 @@ const bucket = admin.storage().bucket();
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Csak JPEG, PNG vagy WebP fájl tölthető fel."));
+    }
+  }
 });
 
-router.post("/:guestId/upload-photo", verifyToken, upload.single("profileImage"), async (req, res) => {
+router.post("/:guestId/upload-photo", verifyToken, (req, res, next) => {
+  upload.single("profileImage")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
   try {
     const { guestId } = req.params;
+
+    const guestDoc = await db.collection("guests").doc(guestId).get();
+    if (!guestDoc.exists) return res.status(404).json({ error: "Guest not found" });
+    if (guestDoc.data().user_id !== req.userId) return res.status(403).json({ error: "Unauthorized" });
 
     if (!req.file || req.file.size === 0) {
       return res.status(400).json({ error: "Nincs feltöltött fájl, vagy a fájl üres!" });
     }
 
-    const fileName = `guests/${guestId}/${Date.now()}_${req.file.originalname}`;
+    // Fixed filename — overwrites the previous photo automatically, no accumulation
+    const fileName = `guests/${guestId}/profile.jpg`;
     const file = bucket.file(fileName);
 
-    const stream = file.createWriteStream({
-      metadata: { contentType: req.file.mimetype },
+    await file.save(req.file.buffer, {
+      metadata: {
+        contentType: "image/jpeg",
+        cacheControl: "public, max-age=31536000",
+      },
     });
+    await file.makePublic();
 
-    stream.on("error", (err) => {
-      res.status(500).json({ error: err.message });
-    });
+    // Cache-busting version param so Coil fetches the new image after overwrite
+    const fileUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}?v=${Date.now()}`;
+    await db.collection("guests").doc(guestId).update({ profileImage: fileUrl });
 
-    stream.on("finish", async () => {
-      await file.makePublic();
-      const fileUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
-      await db.collection("guests").doc(guestId).update({ profileImage: fileUrl });
-      res.status(200).json({ message: "Image uploaded successfully", imageUrl: fileUrl });
-    });
+    res.status(200).json({ message: "Image uploaded successfully", imageUrl: fileUrl });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    stream.end(req.file.buffer);
+router.delete("/:guestId/photo", verifyToken, async (req, res) => {
+  try {
+    const { guestId } = req.params;
+
+    const guestDoc = await db.collection("guests").doc(guestId).get();
+    if (!guestDoc.exists) return res.status(404).json({ error: "Guest not found" });
+    if (guestDoc.data().user_id !== req.userId) return res.status(403).json({ error: "Unauthorized" });
+
+    const file = bucket.file(`guests/${guestId}/profile.jpg`);
+    const [exists] = await file.exists();
+    if (exists) await file.delete();
+
+    await db.collection("guests").doc(guestId).update({ profileImage: null });
+
+    res.json({ message: "Kép sikeresen törölve" });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
