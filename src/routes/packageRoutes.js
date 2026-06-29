@@ -130,6 +130,25 @@ router.post("/assignPackage", verifyToken, async (req, res) => {
       return res.status(404).json({ error: "Bérlet nem található" });
     }
 
+    const existingSnap = await db.collection("userPackages").doc(guestId)
+      .collection("packages").get();
+    if (!existingSnap.empty) {
+      const now = new Date();
+      const hasActive = existingSnap.docs.some(doc => {
+        const pkg = doc.data();
+        const endDate = pkg.endDate ? pkg.endDate.toDate() : null;
+        const isExpiredByDate = endDate !== null && endDate <= now;
+        if (pkg.packageId === "unlimited") return !isExpiredByDate;
+        const remaining = typeof pkg.remainingSessions === "number" ? pkg.remainingSessions : 0;
+        return remaining > 0 && !isExpiredByDate;
+      });
+      if (hasActive) {
+        return res.status(409).json({
+          error: "A vendégnek már van aktív bérlete. Új bérlet csak akkor rendelhető hozzá, ha a meglévő bérlet felhasználódott vagy lejárt."
+        });
+      }
+    }
+
     const packageData = packageDoc.data();
     const sessionCount = (typeof packageData.sessionCount === "number" && packageData.sessionCount > 0)
       ? packageData.sessionCount : 1;
