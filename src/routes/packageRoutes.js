@@ -5,16 +5,20 @@ const { verifyToken } = require("../middleware/auth");
 const router = express.Router();
 const db = admin.firestore();
 
+const DEFAULT_PACKAGE_IDS = new Set(["10_session", "1_session", "5_session", "unlimited"]);
+
 router.get("/", verifyToken, async (req, res) => {
   try {
-    const snapshot = await db.collection("packages").limit(50).get();
-    const packages = snapshot.docs.map(doc => ({
-      id: doc.id,
-      name: doc.data().name,
-      sessionCount: doc.data().sessionCount,
-      durationDays: doc.data().durationDays,
-      description: doc.data().description
-    }));
+    const snapshot = await db.collection("packages").limit(200).get();
+    const packages = snapshot.docs
+      .filter(doc => DEFAULT_PACKAGE_IDS.has(doc.id) || doc.data().ownerId === req.userId)
+      .map(doc => ({
+        id: doc.id,
+        name: doc.data().name,
+        sessionCount: doc.data().sessionCount,
+        durationDays: doc.data().durationDays,
+        description: doc.data().description
+      }));
     res.json(packages);
   } catch (err) {
     res.status(500).json({ error: "Hiba a bérletek lekérésekor" });
@@ -39,7 +43,8 @@ router.post("/", verifyToken, async (req, res) => {
       name: name.trim(),
       sessionCount: Number(sessionCount),
       durationDays: Number(durationDays),
-      description: description || ""
+      description: description || "",
+      ownerId: req.userId
     };
     const docRef = await db.collection("packages").add(newPackage);
     res.status(201).json({ id: docRef.id, ...newPackage, message: "Bérlet sikeresen létrehozva!" });
@@ -150,6 +155,10 @@ router.post("/assignPackage", verifyToken, async (req, res) => {
     }
 
     const packageData = packageDoc.data();
+    if (!DEFAULT_PACKAGE_IDS.has(packageId) && packageData.ownerId !== req.userId) {
+      return res.status(403).json({ error: "Nem jogosult ezt a bérlettípust hozzárendelni." });
+    }
+
     const sessionCount = (typeof packageData.sessionCount === "number" && packageData.sessionCount > 0)
       ? packageData.sessionCount : 1;
     const startDate = new Date();
@@ -206,6 +215,10 @@ router.put("/:packageId", verifyToken, async (req, res) => {
       return res.status(404).json({ error: "Bérlet nem található" });
     }
 
+    if (DEFAULT_PACKAGE_IDS.has(packageId) || doc.data().ownerId !== req.userId) {
+      return res.status(403).json({ error: "Nincs jogosultságod módosítani ezt a bérlettípust." });
+    }
+
     const updatedPackage = {
       name: name || doc.data().name,
       sessionCount: sessionCount !== undefined ? sessionCount : doc.data().sessionCount,
@@ -228,6 +241,10 @@ router.delete("/:packageId", verifyToken, async (req, res) => {
 
     if (!doc.exists) {
       return res.status(404).json({ error: "Bérlet nem található" });
+    }
+
+    if (DEFAULT_PACKAGE_IDS.has(packageId) || doc.data().ownerId !== req.userId) {
+      return res.status(403).json({ error: "Nincs jogosultságod törölni ezt a bérlettípust." });
     }
 
     await packageRef.delete();
