@@ -120,14 +120,14 @@ router.post("/", verifyToken, async (req, res) => {
     if (!name || !name.trim()) {
       return res.status(400).json({ error: "Name is required." });
     }
-    if (!email || !EMAIL_REGEX.test(email)) {
+    if (email && !EMAIL_REGEX.test(email)) {
       return res.status(400).json({ error: "Valid email is required." });
     }
 
     const newGuest = {
       user_id: req.userId,
       name: name.trim(),
-      email: email.trim().toLowerCase(),
+      email: email ? email.trim().toLowerCase() : "",
       phone: phone || "",
       notes: notes || "",
       isActive: true
