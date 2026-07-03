@@ -221,6 +221,53 @@ router.put("/:id/restore", verifyToken, async (req, res) => {
   }
 });
 
+router.delete("/:id/permanent", verifyToken, async (req, res) => {
+  try {
+    const guestId = req.params.id;
+    const guestRef = db.collection("guests").doc(guestId);
+    const doc = await guestRef.get();
+
+    if (!doc.exists) return res.status(404).json({ error: "Guest not found" });
+    if (doc.data().user_id !== req.userId) return res.status(403).json({ error: "Unauthorized" });
+
+    // 1. Storage fájlok törlése
+    const [files] = await bucket.getFiles({ prefix: `guests/${guestId}/` });
+    await Promise.all(files.map(f => f.delete().catch(() => {})));
+
+    // 2. userPackages subcollection törlése
+    const pkgSnap = await db.collection("userPackages").doc(guestId).collection("packages").get();
+    if (!pkgSnap.empty) {
+      const pkgBatch = db.batch();
+      pkgSnap.docs.forEach(d => pkgBatch.delete(d.ref));
+      await pkgBatch.commit();
+    }
+    await db.collection("userPackages").doc(guestId).delete().catch(() => {});
+
+    // 3. Időpontok törlése
+    const appSnap = await db.collection("appointments").where("guest_id", "==", guestId).limit(500).get();
+    if (!appSnap.empty) {
+      const appBatch = db.batch();
+      appSnap.docs.forEach(d => appBatch.delete(d.ref));
+      await appBatch.commit();
+    }
+
+    // 4. Edzéstervek törlése
+    const planSnap = await db.collection("exercisePlans").where("guest_id", "==", guestId).limit(500).get();
+    if (!planSnap.empty) {
+      const planBatch = db.batch();
+      planSnap.docs.forEach(d => planBatch.delete(d.ref));
+      await planBatch.commit();
+    }
+
+    // 5. Guest dokumentum végleges törlése
+    await guestRef.delete();
+
+    res.json({ message: "Guest permanently deleted" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.delete("/:id", verifyToken, async (req, res) => {
   try {
     const guestId = req.params.id;
