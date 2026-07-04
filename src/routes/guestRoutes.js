@@ -143,6 +143,8 @@ router.post("/", verifyToken, async (req, res) => {
 router.get("/:guestId/appointments", verifyToken, async (req, res) => {
   try {
     const guestId = req.params.guestId;
+    const { startDate, endDate } = req.query;
+
     const guestRef = db.collection("guests").doc(guestId);
     const doc = await guestRef.get();
 
@@ -153,14 +155,16 @@ router.get("/:guestId/appointments", verifyToken, async (req, res) => {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
-    const snapshot = await db.collection("appointments")
-      .where("guest_id", "==", guestId)
-      .limit(200)
-      .get();
+    let query = db.collection("appointments")
+      .where("guest_id", "==", guestId);
+
+    if (startDate) query = query.where("date", ">=", startDate);
+    if (endDate)   query = query.where("date", "<=", endDate);
+
+    const snapshot = await query.orderBy("date", "asc").limit(100).get();
 
     const appointments = [];
     snapshot.forEach(doc => appointments.push({ id: doc.id, ...doc.data() }));
-    appointments.sort((a, b) => a.date.localeCompare(b.date));
 
     res.json({ guestId, guestName: doc.data().name, appointments });
   } catch (error) {
