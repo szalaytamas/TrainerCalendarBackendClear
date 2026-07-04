@@ -155,16 +155,17 @@ router.get("/:guestId/appointments", verifyToken, async (req, res) => {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
-    let query = db.collection("appointments")
-      .where("guest_id", "==", guestId);
+    const snapshot = await db.collection("appointments")
+      .where("guest_id", "==", guestId)
+      .get();
 
-    if (startDate) query = query.where("date", ">=", startDate);
-    if (endDate)   query = query.where("date", "<=", endDate);
-
-    const snapshot = await query.orderBy("date", "asc").limit(100).get();
-
-    const appointments = [];
+    let appointments = [];
     snapshot.forEach(doc => appointments.push({ id: doc.id, ...doc.data() }));
+
+    if (startDate) appointments = appointments.filter(a => a.date >= startDate);
+    if (endDate)   appointments = appointments.filter(a => a.date <= endDate);
+
+    appointments.sort((a, b) => a.date.localeCompare(b.date));
 
     res.json({ guestId, guestName: doc.data().name, appointments });
   } catch (error) {
