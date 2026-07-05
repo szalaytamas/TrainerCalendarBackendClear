@@ -45,16 +45,20 @@ router.post("/", verifyToken, async (req, res) => {
 router.get("/guest/:guestId", verifyToken, async (req, res) => {
   try {
     const { guestId } = req.params;
+    const { startDate, endDate } = req.query;
+
     const snapshot = await db.collection("exercisePlans")
       .where("guest_id", "==", guestId)
       .where("user_id", "==", req.userId)
-      .limit(50)
       .get();
 
-    const plans = [];
-    snapshot.forEach((doc) => {
-      plans.push({ id: doc.id, ...doc.data() });
-    });
+    let plans = [];
+    snapshot.forEach((doc) => plans.push({ id: doc.id, ...doc.data() }));
+
+    if (startDate) plans = plans.filter(p => p.workout_day >= startDate);
+    if (endDate)   plans = plans.filter(p => p.workout_day <= endDate);
+
+    plans.sort((a, b) => a.workout_day.localeCompare(b.workout_day));
 
     res.json(plans);
   } catch (error) {
