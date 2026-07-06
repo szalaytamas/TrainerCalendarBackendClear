@@ -1,9 +1,21 @@
 const express = require("express");
 const admin = require("firebase-admin");
+const multer = require("multer");
 const { verifyToken } = require("../middleware/auth");
 
 const router = express.Router();
 const db = admin.firestore();
+const bucket = admin.storage().bucket();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Csak JPEG, PNG vagy WEBP formátum engedélyezett."));
+  }
+});
 
 router.get("/", verifyToken, async (req, res) => {
   try {
@@ -48,6 +60,51 @@ router.put("/", verifyToken, async (req, res) => {
     res.json({ message: "User updated successfully" });
   } catch (error) {
     console.error("❌ Error updating user:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/upload-photo", verifyToken, (req, res, next) => {
+  upload.single("profileImage")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file || req.file.size === 0) {
+      return res.status(400).json({ error: "Nincs feltöltött fájl, vagy a fájl üres!" });
+    }
+
+    const fileName = `users/${req.userId}/profile.jpg`;
+    const file = bucket.file(fileName);
+
+    await file.save(req.file.buffer, {
+      metadata: {
+        contentType: "image/jpeg",
+        cacheControl: "public, max-age=31536000",
+      },
+    });
+    await file.makePublic();
+
+    const fileUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}?v=${Date.now()}`;
+    await db.collection("users").doc(req.userId).update({ profileImage: fileUrl });
+
+    res.status(200).json({ message: "Image uploaded successfully", imageUrl: fileUrl });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/photo", verifyToken, async (req, res) => {
+  try {
+    const file = bucket.file(`users/${req.userId}/profile.jpg`);
+    const [exists] = await file.exists();
+    if (exists) await file.delete();
+
+    await db.collection("users").doc(req.userId).update({ profileImage: null });
+
+    res.json({ message: "Kép sikeresen törölve" });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
