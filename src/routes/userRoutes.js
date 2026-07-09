@@ -112,4 +112,69 @@ router.delete("/photo", verifyToken, async (req, res) => {
   }
 });
 
+const BATCH_SIZE = 400;
+
+async function batchDeleteDocs(docs) {
+  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+    const batch = db.batch();
+    docs.slice(i, i + BATCH_SIZE).forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+  }
+}
+
+router.delete("/account", verifyToken, async (req, res) => {
+  const userId = req.userId;
+  try {
+    // 1. Get all guests
+    const guestsSnapshot = await db.collection("guests")
+      .where("user_id", "==", userId)
+      .get();
+
+    // 2. For each guest: delete Storage files + userPackages subcollection
+    await Promise.all(guestsSnapshot.docs.map(async (guestDoc) => {
+      const guestId = guestDoc.id;
+      const [guestFiles] = await bucket.getFiles({ prefix: `guests/${guestId}/` });
+      await Promise.all(guestFiles.map(f => f.delete()));
+
+      const pkgsSnap = await db.collection("userPackages").doc(guestId)
+        .collection("packages").get();
+      if (!pkgsSnap.empty) await batchDeleteDocs(pkgsSnap.docs);
+      await db.collection("userPackages").doc(guestId).delete();
+    }));
+
+    // 3. Delete guest documents
+    if (!guestsSnapshot.empty) await batchDeleteDocs(guestsSnapshot.docs);
+
+    // 4. Delete appointments
+    const apptSnap = await db.collection("appointments")
+      .where("user_id", "==", userId).get();
+    if (!apptSnap.empty) await batchDeleteDocs(apptSnap.docs);
+
+    // 5. Delete exercise plans
+    const plansSnap = await db.collection("exercisePlans")
+      .where("user_id", "==", userId).get();
+    if (!plansSnap.empty) await batchDeleteDocs(plansSnap.docs);
+
+    // 6. Delete owned package templates
+    const pkgSnap = await db.collection("packages")
+      .where("ownerId", "==", userId).get();
+    if (!pkgSnap.empty) await batchDeleteDocs(pkgSnap.docs);
+
+    // 7. Delete user Storage files (profile image)
+    const [userFiles] = await bucket.getFiles({ prefix: `users/${userId}/` });
+    await Promise.all(userFiles.map(f => f.delete()));
+
+    // 8. Delete Firestore user profile
+    await db.collection("users").doc(userId).delete();
+
+    // 9. Delete Firebase Auth account
+    await admin.auth().deleteUser(userId);
+
+    res.json({ message: "Fiók sikeresen törölve" });
+  } catch (error) {
+    console.error("❌ Error deleting account for user", userId, ":", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
