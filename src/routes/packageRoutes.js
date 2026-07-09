@@ -9,16 +9,26 @@ const DEFAULT_PACKAGE_IDS = new Set(["10_session", "1_session", "5_session", "un
 
 router.get("/", verifyToken, async (req, res) => {
   try {
-    const snapshot = await db.collection("packages").limit(200).get();
-    const packages = snapshot.docs
-      .filter(doc => DEFAULT_PACKAGE_IDS.has(doc.id) || doc.data().ownerId === req.userId)
-      .map(doc => ({
-        id: doc.id,
-        name: doc.data().name,
-        sessionCount: doc.data().sessionCount,
-        durationDays: doc.data().durationDays,
-        description: doc.data().description
-      }));
+    const defaultRefs = [...DEFAULT_PACKAGE_IDS].map(id => db.collection("packages").doc(id));
+
+    const [defaultDocs, userSnapshot] = await Promise.all([
+      db.getAll(...defaultRefs),
+      db.collection("packages").where("ownerId", "==", req.userId).get()
+    ]);
+
+    const mapDoc = (doc) => ({
+      id: doc.id,
+      name: doc.data().name,
+      sessionCount: doc.data().sessionCount,
+      durationDays: doc.data().durationDays,
+      description: doc.data().description
+    });
+
+    const packages = [
+      ...defaultDocs.filter(doc => doc.exists).map(mapDoc),
+      ...userSnapshot.docs.map(mapDoc)
+    ];
+
     res.json(packages);
   } catch (err) {
     res.status(500).json({ error: "Hiba a bérletek lekérésekor" });

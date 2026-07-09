@@ -47,18 +47,27 @@ router.get("/guest/:guestId", verifyToken, async (req, res) => {
     const { guestId } = req.params;
     const { startDate, endDate } = req.query;
 
-    const snapshot = await db.collection("exercisePlans")
+    let query = db.collection("exercisePlans")
       .where("guest_id", "==", guestId)
-      .where("user_id", "==", req.userId)
-      .get();
+      .where("user_id", "==", req.userId);
 
-    let plans = [];
+    const hasDateFilter = !!(startDate || endDate);
+
+    if (startDate) query = query.where("workout_day", ">=", startDate);
+    if (endDate)   query = query.where("workout_day", "<=", endDate);
+
+    // orderBy required when range filter is present; composite index needed for this case:
+    // Collection: exercisePlans | Fields: guest_id ASC, user_id ASC, workout_day ASC
+    if (hasDateFilter) query = query.orderBy("workout_day");
+
+    query = query.limit(300);
+
+    const snapshot = await query.get();
+
+    const plans = [];
     snapshot.forEach((doc) => plans.push({ id: doc.id, ...doc.data() }));
 
-    if (startDate) plans = plans.filter(p => p.workout_day >= startDate);
-    if (endDate)   plans = plans.filter(p => p.workout_day <= endDate);
-
-    plans.sort((a, b) => a.workout_day.localeCompare(b.workout_day));
+    if (!hasDateFilter) plans.sort((a, b) => a.workout_day.localeCompare(b.workout_day));
 
     res.json(plans);
   } catch (error) {
