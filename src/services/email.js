@@ -116,9 +116,51 @@ A naptáradhoz csatoltuk az esemény (.ics) fájlt.`,
   };
 }
 
+function magicLinkEmail({ loginUrl }) {
+  return {
+    subject: "Belépés a foglalási fiókodba",
+    text:
+`Szia!
+
+Kattints az alábbi linkre a belépéshez (rövid ideig él):
+${loginUrl}
+
+Ha nem te kérted, hagyd figyelmen kívül ezt az e-mailt.`,
+    html:
+`<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;color:#1a1a1a">
+<p>Szia!</p>
+<p>Kattints a belépéshez (a link rövid ideig él):</p>
+<p><a href="${escapeHtml(loginUrl)}" style="${BTN}">Belépés</a></p>
+<p style="color:#666;font-size:13px">Ha nem te kérted, hagyd figyelmen kívül ezt az e-mailt.</p>
+</div>`,
+  };
+}
+
+function bookingCancelledEmail({ trainerName, startISO, endISO }) {
+  const when = formatDateHu(startISO, endISO);
+  return {
+    subject: "Időpont lemondva",
+    text:
+`Szia!
+
+Lemondtad az időpontod:
+Edző: ${trainerName}
+Időpont: ${when}`,
+    html:
+`<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;color:#1a1a1a">
+<p>Szia!</p>
+<p>Lemondtad az időpontod:</p>
+<p><strong>Edző:</strong> ${escapeHtml(trainerName)}<br>
+<strong>Időpont:</strong> ${escapeHtml(when)}</p>
+</div>`,
+  };
+}
+
 module.exports = {
   sendEmail,
   formatDateHu,
   verificationEmail,
   bookingRegisteredEmail,
+  magicLinkEmail,
+  bookingCancelledEmail,
 };

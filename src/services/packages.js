@@ -33,4 +33,53 @@ async function findActivePackageId(guestId) {
   return withSessions || unlimited || null;
 }
 
-module.exports = { findActivePackageId };
+/**
+ * Read-only projection of a guest's assigned packages, split into active/expired
+ * with the SAME rules packageRoutes.js GET /user-packages/:guestId uses.
+ * Contains no mutation surface — the guest portal can only read this.
+ *
+ * @param {string} guestId
+ * @returns {Promise<{ active: object[], expired: object[] }>}
+ */
+async function getGuestPackagesView(guestId) {
+  const snap = await db
+    .collection("userPackages")
+    .doc(guestId)
+    .collection("packages")
+    .limit(50)
+    .get();
+
+  const now = new Date();
+  const active = [];
+  const expired = [];
+
+  snap.forEach((doc) => {
+    const pkg = doc.data();
+    const endDate = pkg.endDate ? pkg.endDate.toDate() : null;
+    const isUnlimited = pkg.packageId === "unlimited";
+    const expiredByDate = !!endDate && endDate <= now;
+
+    const view = {
+      id: doc.id,
+      packageId: pkg.packageId || null,
+      name: pkg.name || "",
+      sessionCount: pkg.sessionCount ?? null,
+      remainingSessions: isUnlimited ? null : pkg.remainingSessions ?? null,
+      unlimited: isUnlimited,
+      startDate: pkg.startDate ? pkg.startDate.toDate().toISOString() : null,
+      endDate: endDate ? endDate.toISOString() : null,
+    };
+
+    if (isUnlimited) {
+      (expiredByDate ? expired : active).push(view);
+    } else {
+      const expiredBySessions =
+        pkg.remainingSessions !== undefined && pkg.remainingSessions <= 0;
+      (expiredByDate || expiredBySessions ? expired : active).push(view);
+    }
+  });
+
+  return { active, expired };
+}
+
+module.exports = { findActivePackageId, getGuestPackagesView };
