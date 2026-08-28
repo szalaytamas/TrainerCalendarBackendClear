@@ -55,6 +55,7 @@ const appointmentRoutes = require("./routes/appointmentRoutes");
 const guestRoutes = require("./routes/guestRoutes");
 const exercisePlanRoutes = require("./routes/exercisePlanRoutes");
 const packageRoutes = require("./routes/packageRoutes");
+const bookingRoutes = require("./routes/bookingRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
@@ -62,6 +63,7 @@ app.use("/api/appointments", appointmentRoutes);
 app.use("/api/guests", guestRoutes);
 app.use("/api/exercise-plans", exercisePlanRoutes);
 app.use("/api/packages", packageRoutes);
+app.use("/api/booking", bookingRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

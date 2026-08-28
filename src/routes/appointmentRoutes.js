@@ -24,7 +24,11 @@ router.post("/", verifyToken, async (req, res) => {
       date,
       notes: notes || "",
       guest_id: guest_id || null,
-      attended: false
+      attended: false,
+      // Trainer-created appointments are immediately confirmed — behaviour unchanged.
+      // Guest web bookings (see publicRoutes) start as "pending".
+      status: "confirmed",
+      source: "trainer"
     };
 
     if (guest_id) {
@@ -89,7 +93,9 @@ router.get("/:userId", verifyToken, async (req, res) => {
         notes: data.notes,
         attended: data.hasOwnProperty("attended") ? data.attended : false,
         packageId: data.packageId || null,
-        sessionDeducted: data.hasOwnProperty("sessionDeducted") ? data.sessionDeducted : null
+        sessionDeducted: data.hasOwnProperty("sessionDeducted") ? data.sessionDeducted : null,
+        status: data.status || "confirmed",
+        source: data.source || "trainer"
       });
     });
 
@@ -102,7 +108,7 @@ router.get("/:userId", verifyToken, async (req, res) => {
 router.put("/:id", verifyToken, async (req, res) => {
   try {
     const appointmentId = req.params.id;
-    const { client_name, date, notes, guest_id, attended, packageId, sessionDeducted } = req.body;
+    const { client_name, date, notes, guest_id, attended, packageId, sessionDeducted, status } = req.body;
 
     const appointmentRef = db.collection("appointments").doc(appointmentId);
     const doc = await appointmentRef.get();
@@ -121,7 +127,9 @@ router.put("/:id", verifyToken, async (req, res) => {
       guest_id: guest_id !== undefined ? guest_id : doc.data().guest_id,
       attended: attended !== undefined ? attended : doc.data().attended,
       packageId: guest_id ? (packageId !== undefined ? packageId : doc.data().packageId) : null,
-      sessionDeducted: sessionDeducted !== undefined ? sessionDeducted : (doc.data().sessionDeducted ?? null)
+      sessionDeducted: sessionDeducted !== undefined ? sessionDeducted : (doc.data().sessionDeducted ?? null),
+      status: status !== undefined ? status : (doc.data().status || "confirmed"),
+      source: doc.data().source || "trainer"
     };
 
     await appointmentRef.update(updatedAppointment);
