@@ -6,6 +6,7 @@ const { DateTime } = require("luxon");
 const { verifyGuestToken } = require("../middleware/auth");
 const { computeFreeSlots, isSlotBookable, ZONE } = require("../services/availability");
 const { findActivePackageId, getGuestPackagesView } = require("../services/packages");
+const { trainerCanOfferBooking } = require("../services/entitlement");
 const {
   sendEmail,
   bookingRegisteredEmail,
@@ -157,6 +158,7 @@ router.get("/me", async (req, res) => {
         ]);
         const trainer = trainerDoc.exists ? trainerDoc.data() : {};
         const booking = trainer.booking || {};
+        const bookingLive = booking.enabled === true && trainerCanOfferBooking(trainer);
 
         const all = apptSnap.docs
           .map((d) => apptView(d.id, d.data()))
@@ -175,7 +177,7 @@ router.get("/me", async (req, res) => {
           guestId: g.id,
           trainerName: trainerDisplayName(trainer),
           trainerPhotoUrl: trainer.profileImage || null,
-          bookingEnabled: booking.enabled === true,
+          bookingEnabled: bookingLive,
           cancelWindowHours: booking.cancelWindowHours ?? 24,
           serviceTypes: Array.isArray(booking.serviceTypes)
             ? booking.serviceTypes.map((s) => ({ id: s.id, name: s.name, durationMin: s.durationMin }))
@@ -205,8 +207,9 @@ router.get("/t/:trainerId/availability", async (req, res) => {
     }
 
     const trainerDoc = await db.collection("users").doc(trainerId).get();
-    const settings = (trainerDoc.exists && trainerDoc.data().booking) || null;
-    if (!settings || settings.enabled !== true) {
+    const trainerUser = trainerDoc.exists ? trainerDoc.data() : {};
+    const settings = trainerUser.booking || null;
+    if (!settings || settings.enabled !== true || !trainerCanOfferBooking(trainerUser)) {
       return res.status(404).json({ error: "Ennél az edzőnél nem elérhető az online foglalás." });
     }
 
@@ -252,8 +255,9 @@ router.post("/bookings", async (req, res) => {
     if (!guest) return res.status(403).json({ error: "Nem vagy ennek az edzőnek a vendége." });
 
     const trainerDoc = await db.collection("users").doc(trainerId).get();
-    const settings = (trainerDoc.exists && trainerDoc.data().booking) || null;
-    if (!settings || settings.enabled !== true) {
+    const trainerUser = trainerDoc.exists ? trainerDoc.data() : {};
+    const settings = trainerUser.booking || null;
+    if (!settings || settings.enabled !== true || !trainerCanOfferBooking(trainerUser)) {
       return res.status(404).json({ error: "Ennél az edzőnél nem elérhető az online foglalás." });
     }
 
@@ -296,7 +300,7 @@ router.post("/bookings", async (req, res) => {
 
     // M5: push FCM to the trainer here.
 
-    const trainer = trainerDoc.data();
+    const trainer = trainerUser;
     const trainerName = trainerDisplayName(trainer);
     const ics = buildIcs({
       uid: `${apptRef.id}@trainercalendar.hu`,
@@ -415,7 +419,7 @@ router.post("/bookings/:id/reschedule", async (req, res) => {
     const { ref, appt, trainer } = loaded;
 
     const settings = trainer.booking || null;
-    if (!settings || settings.enabled !== true) {
+    if (!settings || settings.enabled !== true || !trainerCanOfferBooking(trainer)) {
       return res.status(404).json({ error: "Ennél az edzőnél nem elérhető az online foglalás." });
     }
 

@@ -62,6 +62,7 @@ const packageRoutes = require("./routes/packageRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
 const publicRoutes = require("./routes/publicRoutes");
 const guestPortalRoutes = require("./routes/guestPortalRoutes");
+const billingRoutes = require("./routes/billingRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
@@ -72,6 +73,7 @@ app.use("/api/packages", packageRoutes);
 app.use("/api/booking", bookingRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/guest", guestPortalRoutes);
+app.use("/api/billing", billingRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

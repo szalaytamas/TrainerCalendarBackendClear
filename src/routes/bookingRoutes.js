@@ -2,6 +2,7 @@ const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 const { verifyToken } = require("../middleware/auth");
+const { isProEntitled, bookingRequiresPro } = require("../services/entitlement");
 
 const router = express.Router();
 const db = admin.firestore();
@@ -76,8 +77,15 @@ async function slugOwner(slug) {
 router.get("/settings", verifyToken, async (req, res) => {
   try {
     const doc = await db.collection("users").doc(req.userId).get();
-    const booking = (doc.exists && doc.data().booking) || {};
-    res.json({ ...DEFAULT_SETTINGS, ...booking });
+    const user = (doc.exists && doc.data()) || {};
+    const booking = user.booking || {};
+    res.json({
+      ...DEFAULT_SETTINGS,
+      ...booking,
+      tier: (user.subscription || {}).tier || "none",
+      proEntitled: isProEntitled(user),
+      bookingRequiresPro: bookingRequiresPro(),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -119,6 +127,15 @@ router.put("/settings", verifyToken, async (req, res) => {
     }
 
     if (b.enabled !== undefined) next.enabled = !!b.enabled;
+
+    // Turning booking ON requires an active Pro entitlement. Configuring the
+    // other fields while on Alap is allowed so it's ready when they upgrade.
+    if (next.enabled && !current.enabled && bookingRequiresPro() && !isProEntitled(userDoc.data())) {
+      return res.status(403).json({
+        error: "A vendég időpontfoglalás a Pro csomag része. Válts Pro-ra az aktiváláshoz.",
+        code: "pro_required",
+      });
+    }
     if (next.enabled && !next.slug) {
       return res.status(400).json({
         error: "A foglalás engedélyezéséhez előbb állíts be egy foglalási linket.",
@@ -131,7 +148,7 @@ router.put("/settings", verifyToken, async (req, res) => {
     }
 
     await db.collection("users").doc(req.userId).set({ booking: next }, { merge: true });
-    res.json({ ...DEFAULT_SETTINGS, ...next });
+    res.json({ ...DEFAULT_SETTINGS, ...next, tier: (userDoc.data().subscription || {}).tier || "none", proEntitled: isProEntitled(userDoc.data()) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

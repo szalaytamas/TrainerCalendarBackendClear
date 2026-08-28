@@ -9,6 +9,7 @@ const { computeFreeSlots, isSlotBookable, ZONE } = require("../services/availabi
 const { findActivePackageId } = require("../services/packages");
 const { sendEmail, verificationEmail, bookingRegisteredEmail } = require("../services/email");
 const { buildIcs, icsAttachment } = require("../services/ics");
+const { trainerCanOfferBooking } = require("../services/entitlement");
 
 const router = express.Router();
 const db = admin.firestore();
@@ -37,7 +38,7 @@ async function loadEnabledTrainerBySlug(slug) {
   const doc = snap.docs[0];
   const user = doc.data();
   if (!user.booking || user.booking.enabled !== true) return null;
-  // M4: additionally require an active "pro" subscription here.
+  if (!trainerCanOfferBooking(user)) return null; // Pro entitlement required
   return { id: doc.id, user };
 }
 
