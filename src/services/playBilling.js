@@ -52,10 +52,12 @@ const STATE_MAP = {
   SUBSCRIPTION_STATE_PENDING: "pending",
 };
 
+const LEGACY_PRODUCT = "trainer_calendar_monthly"; // pre-M6 single plan → treat as pro
+
 function tierForProduct(productId) {
-  const pro = process.env.PLAY_PRODUCT_PRO || "trainer_calendar_pro";
-  const alap = process.env.PLAY_PRODUCT_ALAP || "trainer_calendar_alap";
-  if (productId === pro) return "pro";
+  const pro = process.env.PLAY_PRODUCT_PRO || "trainer_calendar_pro_havi_auto";
+  const alap = process.env.PLAY_PRODUCT_ALAP || "trainer_calendar_alap_havi_auto";
+  if (productId === pro || productId === LEGACY_PRODUCT) return "pro";
   if (productId === alap) return "alap";
   return "none";
 }
