@@ -14,6 +14,8 @@ const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DEFAULT_SETTINGS = {
   enabled: false,
   slug: null,
+  displayName: "",
+  bio: "",
   slotMinutes: 60,
   bufferMinutes: 0,
   minNoticeHours: 12,
@@ -91,6 +93,8 @@ router.put("/settings", verifyToken, async (req, res) => {
     const current = userDoc.data().booking || {};
     const next = { ...DEFAULT_SETTINGS, ...current };
 
+    if (b.displayName !== undefined) next.displayName = String(b.displayName || "").trim().slice(0, 80);
+    if (b.bio !== undefined) next.bio = String(b.bio || "").trim().slice(0, 500);
     if (b.slotMinutes !== undefined) next.slotMinutes = clampInt(b.slotMinutes, 15, 480, 60);
     if (b.bufferMinutes !== undefined) next.bufferMinutes = clampInt(b.bufferMinutes, 0, 120, 0);
     if (b.minNoticeHours !== undefined) next.minNoticeHours = clampInt(b.minNoticeHours, 0, 720, 12);

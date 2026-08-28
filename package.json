@@ -5,7 +5,7 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
-    "test": "node src/services/availability.test.js"
+    "test": "node src/services/availability.test.js && node src/services/ics.test.js"
   },
   "keywords": [],
   "author": "",

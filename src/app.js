@@ -17,6 +17,10 @@ admin.initializeApp({
 
 const app = express();
 
+// Render (and most PaaS) put a reverse proxy in front of the app; trust the
+// first hop so req.ip / rate-limiting / Turnstile see the real client IP.
+app.set("trust proxy", 1);
+
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",")
   : [];
@@ -56,6 +60,7 @@ const guestRoutes = require("./routes/guestRoutes");
 const exercisePlanRoutes = require("./routes/exercisePlanRoutes");
 const packageRoutes = require("./routes/packageRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
+const publicRoutes = require("./routes/publicRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
@@ -64,6 +69,7 @@ app.use("/api/guests", guestRoutes);
 app.use("/api/exercise-plans", exercisePlanRoutes);
 app.use("/api/packages", packageRoutes);
 app.use("/api/booking", bookingRoutes);
+app.use("/api/public", publicRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
