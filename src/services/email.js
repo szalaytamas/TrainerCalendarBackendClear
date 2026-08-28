@@ -1,5 +1,4 @@
-const { DateTime } = require("luxon");
-const { ZONE } = require("./availability");
+const { parseLocal } = require("./availability");
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
@@ -51,8 +50,8 @@ async function sendEmail({ to, subject, html, text, replyTo, attachments }) {
 
 /** "2026. szeptember 2. (szerda) 14:00–15:00" */
 function formatDateHu(startISO, endISO) {
-  const start = DateTime.fromISO(startISO, { zone: ZONE }).setLocale("hu");
-  const end = endISO ? DateTime.fromISO(endISO, { zone: ZONE }).setLocale("hu") : null;
+  const start = parseLocal(startISO).setLocale("hu");
+  const end = endISO ? parseLocal(endISO).setLocale("hu") : null;
   const day = start.toFormat("yyyy. LLLL d. (cccc)");
   const time = end ? `${start.toFormat("HH:mm")}–${end.toFormat("HH:mm")}` : start.toFormat("HH:mm");
   return `${day} ${time}`;
@@ -136,6 +135,26 @@ Ha nem te kérted, hagyd figyelmen kívül ezt az e-mailt.`,
   };
 }
 
+function guestInviteEmail({ trainerName, loginUrl }) {
+  return {
+    subject: `${trainerName} meghívott az online időpontfoglalásra`,
+    text:
+`Szia!
+
+${trainerName} edző meghívott, hogy online foglalj időpontot és kövesd a bérleted.
+
+Nyisd meg a fiókod (a link rövid ideig él):
+${loginUrl}`,
+    html:
+`<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;color:#1a1a1a">
+<p>Szia!</p>
+<p><strong>${escapeHtml(trainerName)}</strong> edző meghívott, hogy online foglalj időpontot és kövesd a bérleted.</p>
+<p><a href="${escapeHtml(loginUrl)}" style="${BTN}">Fiók megnyitása</a></p>
+<p style="color:#666;font-size:13px">A link rövid ideig él. Ha nem ismered a feladót, hagyd figyelmen kívül.</p>
+</div>`,
+  };
+}
+
 function bookingCancelledEmail({ trainerName, startISO, endISO }) {
   const when = formatDateHu(startISO, endISO);
   return {
@@ -162,5 +181,6 @@ module.exports = {
   verificationEmail,
   bookingRegisteredEmail,
   magicLinkEmail,
+  guestInviteEmail,
   bookingCancelledEmail,
 };

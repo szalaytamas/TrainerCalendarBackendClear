@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 const crypto = require("crypto");
 const { verifyToken } = require("../middleware/auth");
 const { isProEntitled, bookingRequiresPro } = require("../services/entitlement");
+const { sendEmail, guestInviteEmail } = require("../services/email");
 
 const router = express.Router();
 const db = admin.firestore();
@@ -179,6 +180,45 @@ router.get("/requests", verifyToken, async (req, res) => {
       .map((d) => ({ id: d.id, ...d.data() }))
       .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
     res.json(requests);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/booking/guests/:id/invite  → email the guest a magic-link to the portal
+router.post("/guests/:id/invite", verifyToken, async (req, res) => {
+  try {
+    const guestRef = db.collection("guests").doc(req.params.id);
+    const guestDoc = await guestRef.get();
+    if (!guestDoc.exists) return res.status(404).json({ error: "Vendég nem található." });
+    const guest = guestDoc.data();
+    if (guest.user_id !== req.userId) return res.status(403).json({ error: "Unauthorized" });
+    if (!guest.email) {
+      return res.status(400).json({ error: "A vendégnek nincs e-mail-címe. Add meg előbb a vendég adatlapján." });
+    }
+
+    const userDoc = await db.collection("users").doc(req.userId).get();
+    const u = userDoc.exists ? userDoc.data() : {};
+    const trainerName =
+      (u.booking && u.booking.displayName && u.booking.displayName.trim()) ||
+      `${u.forename || ""} ${u.lastname || ""}`.trim() ||
+      "Az edződ";
+
+    const webOrigin = (process.env.PUBLIC_WEB_ORIGIN || "https://foglalas.trainercalendar.hu").replace(/\/$/, "");
+    try {
+      const link = await admin.auth().generateSignInWithEmailLink(guest.email, {
+        url: `${webOrigin}/fiok/belepes`,
+        handleCodeInApp: true,
+      });
+      const mail = guestInviteEmail({ trainerName, loginUrl: link });
+      await sendEmail({ to: guest.email, subject: mail.subject, html: mail.html, text: mail.text, replyTo: u.email || undefined });
+    } catch (e) {
+      console.error("[booking/invite] send failed:", e.message);
+      return res.status(502).json({ error: "A meghívó küldése nem sikerült. Próbáld újra." });
+    }
+
+    await guestRef.update({ invitedAt: admin.firestore.FieldValue.serverTimestamp() });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

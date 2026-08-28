@@ -1,38 +1,61 @@
 const { DateTime, Interval } = require("luxon");
 
 // All trainer/guest wall-clock times are interpreted in this zone.
-// Appointment `date` strings are stored WITHOUT a timezone designator
-// (e.g. "2026-08-28T17:00"), matching the existing app behaviour.
 const ZONE = "Europe/Budapest";
+
+// The Android app stores appointment `date` as "yyyy-MM-dd HH:mm:ss" (space
+// separator, seconds). Every slot string we emit / store MUST match that format
+// so the app can parse and sort it.
+const WALL_FORMAT = "yyyy-LL-dd HH:mm:ss";
 
 // Luxon weekday: 1=Mon .. 7=Sun.  (weekday % 7) → Mon=1..Sat=6, Sun=0
 const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-
-const ACTIVE_STATUSES_BLOCKING = (status) => {
-  const s = status || "confirmed";
-  return s !== "declined" && s !== "cancelled_by_guest" && s !== "cancelled_by_trainer";
-};
 
 function parseHM(hm) {
   const [h, m] = String(hm).split(":").map(Number);
   return { h, m };
 }
 
-function wallClock(dt) {
-  return dt.toFormat("yyyy-LL-dd'T'HH:mm");
+/**
+ * Tolerant parser for the various date strings that flow through the system:
+ *  - "2026-09-01 14:00:00"      (app / our stored format)
+ *  - "2026-09-01T14:00"         (older ISO-ish)
+ *  - "2026-09-01T00:00:00.000+02:00" (luxon .toISO() output)
+ *  - "2026-09-01"               (date only)
+ * Always resolved in Europe/Budapest.
+ */
+function parseLocal(str) {
+  if (!str) return DateTime.invalid("empty");
+  const s = String(str);
+  let dt = DateTime.fromISO(s, { zone: ZONE });
+  if (dt.isValid) return dt;
+  dt = DateTime.fromSQL(s, { zone: ZONE }); // "yyyy-MM-dd HH:mm:ss"
+  if (dt.isValid) return dt;
+  dt = DateTime.fromFormat(s, "yyyy-MM-dd HH:mm", { zone: ZONE });
+  if (dt.isValid) return dt;
+  return DateTime.fromFormat(s, "yyyy-MM-dd", { zone: ZONE });
 }
+
+function wallClock(dt) {
+  return dt.toFormat(WALL_FORMAT);
+}
+
+const ACTIVE_STATUSES_BLOCKING = (status) => {
+  const st = status || "confirmed";
+  return st !== "declined" && st !== "cancelled_by_guest" && st !== "cancelled_by_trainer";
+};
 
 /**
  * Compute bookable free slots for a trainer using the "working hours" model.
  *
  * @param {Object}  opts
  * @param {Object}  opts.settings              users/{id}.booking object
- * @param {Array}   opts.appointments          [{ date:"ISO wall-clock", durationMin?, status? }]
- * @param {string}  opts.fromISO               range start (wall-clock or ISO), inclusive
- * @param {string}  opts.toISO                 range end (wall-clock or ISO), exclusive
+ * @param {Array}   opts.appointments          [{ date, durationMin?, status? }]
+ * @param {string}  opts.fromISO               range start (any parseLocal format), inclusive
+ * @param {string}  opts.toISO                 range end, exclusive
  * @param {number} [opts.serviceDurationMin]   duration of the service being booked
  * @param {DateTime} [opts.now]                injectable "now" for testing
- * @returns {Array<{ start:string, end:string }>}  wall-clock strings, same format as appointment.date
+ * @returns {Array<{ start:string, end:string }>}  "yyyy-MM-dd HH:mm:ss" strings
  */
 function computeFreeSlots({ settings, appointments, fromISO, toISO, serviceDurationMin, now }) {
   const s = settings || {};
@@ -46,18 +69,17 @@ function computeFreeSlots({ settings, appointments, fromISO, toISO, serviceDurat
   const earliest = nowDt.plus({ hours: minNoticeHours });
   const latest = nowDt.plus({ days: maxAdvanceDays }).endOf("day");
 
-  let rangeStart = DateTime.fromISO(fromISO, { zone: ZONE });
-  let rangeEnd = DateTime.fromISO(toISO, { zone: ZONE });
+  let rangeStart = parseLocal(fromISO);
+  let rangeEnd = parseLocal(toISO);
   if (!rangeStart.isValid || !rangeEnd.isValid) return [];
   if (rangeStart < earliest) rangeStart = earliest;
   if (rangeEnd > latest) rangeEnd = latest;
   if (rangeEnd <= rangeStart) return [];
 
-  // Busy intervals from existing appointments (buffer padded on both sides).
   const busy = (appointments || [])
     .filter((a) => a && a.date && ACTIVE_STATUSES_BLOCKING(a.status))
     .map((a) => {
-      const start = DateTime.fromISO(a.date, { zone: ZONE });
+      const start = parseLocal(a.date);
       if (!start.isValid) return null;
       const dur = clampNumber(a.durationMin || s.slotMinutes || 60, 5, 480);
       return Interval.fromDateTimes(
@@ -101,12 +123,11 @@ function computeFreeSlots({ settings, appointments, fromISO, toISO, serviceDurat
 
 /**
  * Is a specific wall-clock start still bookable right now?
- * Used by the booking-creation endpoints to re-validate the chosen slot.
  */
 function isSlotBookable({ settings, appointments, startISO, serviceDurationMin, now }) {
   const s = settings || {};
   const dur = clampNumber(serviceDurationMin || s.slotMinutes || 60, 5, 480);
-  const start = DateTime.fromISO(startISO, { zone: ZONE });
+  const start = parseLocal(startISO);
   if (!start.isValid) return { ok: false, reason: "invalid_slot" };
 
   const end = start.plus({ minutes: dur });
@@ -130,4 +151,4 @@ function clampNumber(v, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-module.exports = { computeFreeSlots, isSlotBookable, ZONE };
+module.exports = { computeFreeSlots, isSlotBookable, parseLocal, wallClock, ZONE, WALL_FORMAT };

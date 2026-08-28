@@ -4,7 +4,7 @@ const rateLimit = require("express-rate-limit");
 const { DateTime } = require("luxon");
 
 const { verifyGuestToken } = require("../middleware/auth");
-const { computeFreeSlots, isSlotBookable, ZONE } = require("../services/availability");
+const { computeFreeSlots, isSlotBookable, parseLocal, ZONE } = require("../services/availability");
 const { findActivePackageId, getGuestPackagesView } = require("../services/packages");
 const { trainerCanOfferBooking } = require("../services/entitlement");
 const {
@@ -12,8 +12,10 @@ const {
   bookingRegisteredEmail,
   bookingCancelledEmail,
   magicLinkEmail,
+  formatDateHu,
 } = require("../services/email");
 const { buildIcs, icsAttachment } = require("../services/ics");
+const { notifyUser } = require("../services/push");
 
 const router = express.Router();
 const db = admin.firestore();
@@ -64,8 +66,8 @@ function apptView(id, a) {
 }
 
 async function fetchTrainerAppointments(trainerId, fromISO, toISO) {
-  const low = DateTime.fromISO(fromISO, { zone: ZONE }).minus({ days: 1 }).toFormat("yyyy-LL-dd'T'HH:mm");
-  const high = DateTime.fromISO(toISO, { zone: ZONE }).toFormat("yyyy-LL-dd'T'HH:mm");
+  const low = parseLocal(fromISO).minus({ days: 1 }).toFormat("yyyy-LL-dd HH:mm:ss");
+  const high = parseLocal(toISO).toFormat("yyyy-LL-dd HH:mm:ss");
   const snap = await db
     .collection("appointments")
     .where("user_id", "==", trainerId)
@@ -147,7 +149,7 @@ router.get("/me", async (req, res) => {
       await batch.commit().catch((e) => console.error("[guest/me] link batch:", e.message));
     }
 
-    const todayStr = DateTime.now().setZone(ZONE).startOf("day").toFormat("yyyy-LL-dd'T'HH:mm");
+    const todayStr = DateTime.now().setZone(ZONE).startOf("day").toFormat("yyyy-LL-dd HH:mm:ss");
 
     const trainers = await Promise.all(
       guests.map(async (g) => {
@@ -214,12 +216,8 @@ router.get("/t/:trainerId/availability", async (req, res) => {
     }
 
     const now = DateTime.now().setZone(ZONE);
-    const from = req.query.from
-      ? DateTime.fromISO(String(req.query.from), { zone: ZONE })
-      : now.startOf("day");
-    let to = req.query.to
-      ? DateTime.fromISO(String(req.query.to), { zone: ZONE })
-      : from.plus({ days: 14 });
+    const from = req.query.from ? parseLocal(String(req.query.from)) : now.startOf("day");
+    let to = req.query.to ? parseLocal(String(req.query.to)) : from.plus({ days: 14 });
     if (!from.isValid || !to.isValid) {
       return res.status(400).json({ error: "Érvénytelen dátumtartomány." });
     }
@@ -262,7 +260,7 @@ router.post("/bookings", async (req, res) => {
     }
 
     const { durationMin, serviceType } = resolveService(settings, serviceTypeId);
-    const dayStart = DateTime.fromISO(start, { zone: ZONE }).startOf("day");
+    const dayStart = parseLocal(start).startOf("day");
     if (!dayStart.isValid) return res.status(400).json({ error: "Érvénytelen időpont." });
 
     const appointments = await fetchTrainerAppointments(
@@ -298,10 +296,15 @@ router.post("/bookings", async (req, res) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // M5: push FCM to the trainer here.
-
     const trainer = trainerUser;
     const trainerName = trainerDisplayName(trainer);
+
+    notifyUser(trainerId, {
+      title: autoConfirm ? "Új foglalás" : "Új foglalási kérés",
+      body: `${guest.name || req.guestEmail} — ${formatDateHu(check.start, check.end)}`,
+      data: { type: "booking_request", appointmentId: apptRef.id, status: autoConfirm ? "confirmed" : "pending" },
+    }).catch((e) => console.error("[guest/bookings] push failed:", e.message));
+
     const ics = buildIcs({
       uid: `${apptRef.id}@trainercalendar.hu`,
       startISO: check.start,
@@ -359,7 +362,7 @@ async function loadCancellableAppt(req, res) {
   const trainerDoc = await db.collection("users").doc(appt.user_id).get();
   const trainer = trainerDoc.exists ? trainerDoc.data() : {};
   const cancelWindowHours = (trainer.booking && trainer.booking.cancelWindowHours) ?? 24;
-  const deadline = DateTime.fromISO(appt.date, { zone: ZONE }).minus({ hours: cancelWindowHours });
+  const deadline = parseLocal(appt.date).minus({ hours: cancelWindowHours });
   if (DateTime.now().setZone(ZONE) >= deadline) {
     res.status(409).json({
       error: `A módosítási határidő lejárt (${cancelWindowHours} órával a kezdés előtt). Egyeztess az edződdel.`,
@@ -380,12 +383,17 @@ router.post("/bookings/:id/cancel", async (req, res) => {
 
     await ref.update({ status: "cancelled_by_guest", cancelledAt: admin.firestore.FieldValue.serverTimestamp() });
 
-    // M5: push FCM to the trainer here.
-
     const trainerName = trainerDisplayName(trainer);
-    const end = DateTime.fromISO(appt.date, { zone: ZONE })
+
+    notifyUser(appt.user_id, {
+      title: "Vendég lemondta az időpontot",
+      body: `${appt.client_name || "Vendég"} — ${formatDateHu(appt.date)}`,
+      data: { type: "booking_cancelled", appointmentId: ref.id },
+    }).catch((e) => console.error("[guest/cancel] push failed:", e.message));
+
+    const end = parseLocal(appt.date)
       .plus({ minutes: appt.durationMin || (trainer.booking && trainer.booking.slotMinutes) || 60 })
-      .toFormat("yyyy-LL-dd'T'HH:mm");
+      .toFormat("yyyy-LL-dd HH:mm:ss");
     const mail = bookingCancelledEmail({ trainerName, startISO: appt.date, endISO: end });
     try {
       await sendEmail({
@@ -427,7 +435,7 @@ router.post("/bookings/:id/reschedule", async (req, res) => {
       settings,
       serviceTypeId || appt.serviceTypeId
     );
-    const dayStart = DateTime.fromISO(start, { zone: ZONE }).startOf("day");
+    const dayStart = parseLocal(start).startOf("day");
     if (!dayStart.isValid) return res.status(400).json({ error: "Érvénytelen időpont." });
 
     let appointments = await fetchTrainerAppointments(
@@ -452,9 +460,14 @@ router.post("/bookings/:id/reschedule", async (req, res) => {
       rescheduledAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // M5: push FCM to the trainer here.
-
     const trainerName = trainerDisplayName(trainer);
+
+    notifyUser(appt.user_id, {
+      title: "Vendég áthelyezte az időpontot",
+      body: `${appt.client_name || "Vendég"} — ${formatDateHu(check.start, check.end)}`,
+      data: { type: "booking_rescheduled", appointmentId: ref.id, status: autoConfirm ? "confirmed" : "pending" },
+    }).catch((e) => console.error("[guest/reschedule] push failed:", e.message));
+
     const ics = buildIcs({
       uid: `${ref.id}@trainercalendar.hu`,
       startISO: check.start,

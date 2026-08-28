@@ -1,12 +1,12 @@
 const { DateTime } = require("luxon");
-const { ZONE } = require("./availability");
+const { parseLocal, ZONE } = require("./availability");
 
 /**
  * Build a minimal RFC 5545 VCALENDAR string for a single appointment.
  * Times are emitted as local (Europe/Budapest) with an explicit TZID.
  */
 function buildIcs({ uid, startISO, endISO, summary, description, organizerName }) {
-  const local = (iso) => DateTime.fromISO(iso, { zone: ZONE }).toFormat("yyyyLLdd'T'HHmmss");
+  const local = (iso) => parseLocal(iso).toFormat("yyyyLLdd'T'HHmmss");
   const stampUtc = DateTime.utc().toFormat("yyyyLLdd'T'HHmmss'Z'");
   const esc = (s) => String(s || "").replace(/([,;\\])/g, "\\$1").replace(/\r?\n/g, "\\n");
 

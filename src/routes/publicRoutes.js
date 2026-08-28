@@ -5,11 +5,12 @@ const rateLimit = require("express-rate-limit");
 const { DateTime } = require("luxon");
 
 const { verifyTurnstile } = require("../services/turnstile");
-const { computeFreeSlots, isSlotBookable, ZONE } = require("../services/availability");
+const { computeFreeSlots, isSlotBookable, parseLocal, ZONE } = require("../services/availability");
 const { findActivePackageId } = require("../services/packages");
-const { sendEmail, verificationEmail, bookingRegisteredEmail } = require("../services/email");
+const { sendEmail, verificationEmail, bookingRegisteredEmail, formatDateHu } = require("../services/email");
 const { buildIcs, icsAttachment } = require("../services/ics");
 const { trainerCanOfferBooking } = require("../services/entitlement");
+const { notifyUser } = require("../services/push");
 
 const router = express.Router();
 const db = admin.firestore();
@@ -70,8 +71,8 @@ function publicTrainerView(user) {
 
 async function fetchTrainerAppointments(trainerId, fromISO, toISO) {
   // widen the low bound so long appointments starting just before the range still block
-  const low = DateTime.fromISO(fromISO, { zone: ZONE }).minus({ days: 1 }).toFormat("yyyy-LL-dd'T'HH:mm");
-  const high = DateTime.fromISO(toISO, { zone: ZONE }).toFormat("yyyy-LL-dd'T'HH:mm");
+  const low = parseLocal(fromISO).minus({ days: 1 }).toFormat("yyyy-LL-dd HH:mm:ss");
+  const high = parseLocal(toISO).toFormat("yyyy-LL-dd HH:mm:ss");
   const snap = await db
     .collection("appointments")
     .where("user_id", "==", trainerId)
@@ -117,12 +118,8 @@ router.get("/t/:slug/availability", async (req, res) => {
 
     const settings = t.user.booking;
     const now = DateTime.now().setZone(ZONE);
-    const from = req.query.from
-      ? DateTime.fromISO(String(req.query.from), { zone: ZONE })
-      : now.startOf("day");
-    let to = req.query.to
-      ? DateTime.fromISO(String(req.query.to), { zone: ZONE })
-      : from.plus({ days: 14 });
+    const from = req.query.from ? parseLocal(String(req.query.from)) : now.startOf("day");
+    let to = req.query.to ? parseLocal(String(req.query.to)) : from.plus({ days: 14 });
     if (!from.isValid || !to.isValid) {
       return res.status(400).json({ error: "Érvénytelen dátumtartomány." });
     }
@@ -166,7 +163,7 @@ router.post("/bookings", bookingLimiter, async (req, res) => {
     const emailLc = String(email).trim().toLowerCase();
 
     // re-validate the chosen slot against the live calendar
-    const dayStart = DateTime.fromISO(start, { zone: ZONE }).startOf("day");
+    const dayStart = parseLocal(start).startOf("day");
     if (!dayStart.isValid) return res.status(400).json({ error: "Érvénytelen időpont." });
     const appointments = await fetchTrainerAppointments(
       t.id,
@@ -308,10 +305,15 @@ router.post("/bookings/:token/verify", async (req, res) => {
     await apptRef.update(updates);
     await tokenRef.update({ used: true, usedAt: admin.firestore.FieldValue.serverTimestamp() });
 
-    // M5: push an FCM notification to the trainer here.
-
     const trainerName = trainerDisplayName(trainer);
     const finalStatus = updates.status || appt.status;
+
+    notifyUser(tok.trainerId, {
+      title: finalStatus === "confirmed" ? "Új foglalás" : "Új foglalási kérés",
+      body: `${appt.client_name || "Vendég"} — ${formatDateHu(tok.start, tok.end)}`,
+      data: { type: "booking_request", appointmentId: tok.appointmentId, status: finalStatus },
+    }).catch((e) => console.error("[public/verify] push failed:", e.message));
+
     const ics = buildIcs({
       uid: `${tok.appointmentId}@trainercalendar.hu`,
       startISO: tok.start,

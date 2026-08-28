@@ -64,6 +64,36 @@ router.put("/", verifyToken, async (req, res) => {
   }
 });
 
+// PUT /api/user/fcm-token   { token }
+router.put("/fcm-token", verifyToken, async (req, res) => {
+  try {
+    const token = String((req.body && req.body.token) || "").trim();
+    if (!token) return res.status(400).json({ error: "token kötelező." });
+    await db.collection("users").doc(req.userId).set(
+      { fcmTokens: admin.firestore.FieldValue.arrayUnion(token) },
+      { merge: true }
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/user/fcm-token   { token }   (call on logout)
+router.delete("/fcm-token", verifyToken, async (req, res) => {
+  try {
+    const token = String((req.body && req.body.token) || "").trim();
+    if (token) {
+      await db.collection("users").doc(req.userId)
+        .update({ fcmTokens: admin.firestore.FieldValue.arrayRemove(token) })
+        .catch(() => {});
+    }
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.post("/upload-photo", verifyToken, (req, res, next) => {
   upload.single("profileImage")(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message });
