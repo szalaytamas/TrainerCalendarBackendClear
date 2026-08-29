@@ -92,15 +92,26 @@ router.get("/subscription", verifyToken, async (req, res) => {
 router.post("/play/rtdn", async (req, res) => {
   try {
     const expected = process.env.PLAY_RTDN_TOKEN;
-    if (!expected || req.query.token !== expected) return res.status(403).end();
+    if (!expected) {
+      console.warn("[rtdn] push received but PLAY_RTDN_TOKEN is not set — rejecting (403)");
+      return res.status(403).end();
+    }
+    if (req.query.token !== expected) {
+      console.warn("[rtdn] push received with missing/wrong ?token= — rejecting (403)");
+      return res.status(403).end();
+    }
+    console.log("[rtdn] push received");
 
     const msg = req.body && req.body.message;
-    if (!msg || !msg.data) return res.status(204).end();
+    if (!msg || !msg.data) {
+      console.warn("[rtdn] push had no message.data");
+      return res.status(204).end();
+    }
 
     const payload = JSON.parse(Buffer.from(msg.data, "base64").toString("utf8"));
 
     if (payload.testNotification) {
-      console.log("[rtdn] test notification", payload.testNotification.version || "");
+      console.log("[rtdn] TEST notification OK — RTDN wiring is live", payload.testNotification.version || "");
       return res.status(204).end();
     }
 
