@@ -54,17 +54,20 @@ const booking = {
   bio: "Személyi edzés — teszt foglalási oldal.",
   slotMinutes: 60,
   bufferMinutes: 0,
-  minNoticeHours: 12,
+  minNoticeHours: 3,
   cancelWindowHours: 24,
   maxAdvanceDays: 30,
   autoConfirm: false,
   serviceTypes: [],
+  // Teszthez: minden nap (hétvégével), kora reggeltől késő estig.
   workingHours: {
-    mon: [{ start: "09:00", end: "17:00" }],
-    tue: [{ start: "09:00", end: "17:00" }],
-    wed: [{ start: "09:00", end: "17:00" }],
-    thu: [{ start: "09:00", end: "17:00" }],
-    fri: [{ start: "09:00", end: "16:00" }],
+    mon: [{ start: "05:00", end: "22:00" }],
+    tue: [{ start: "05:00", end: "22:00" }],
+    wed: [{ start: "05:00", end: "22:00" }],
+    thu: [{ start: "05:00", end: "22:00" }],
+    fri: [{ start: "05:00", end: "22:00" }],
+    sat: [{ start: "05:00", end: "22:00" }],
+    sun: [{ start: "05:00", end: "22:00" }],
   },
 };
 
