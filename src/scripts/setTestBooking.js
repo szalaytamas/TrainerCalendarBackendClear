@@ -69,6 +69,10 @@ const booking = {
     sat: [{ start: "05:00", end: "22:00" }],
     sun: [{ start: "05:00", end: "22:00" }],
   },
+  // Példa kizárás: hétköznap ebédszünet 12:00–13:00 (nem foglalható)
+  blocks: [
+    { id: "lunch", type: "weekly", days: ["mon", "tue", "wed", "thu", "fri"], start: "12:00", end: "13:00", allDay: false },
+  ],
 };
 
 (async () => {

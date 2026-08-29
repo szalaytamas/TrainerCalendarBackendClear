@@ -26,7 +26,10 @@ const DEFAULT_SETTINGS = {
   autoConfirm: false,
   workingHours: {},
   serviceTypes: [],
+  blocks: [],
 };
+
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 function clampInt(v, min, max, dflt) {
   const n = parseInt(v, 10);
@@ -67,6 +70,43 @@ function sanitizeServiceTypes(list) {
     durationMin: clampInt(s && s.durationMin, 15, 480, 60),
     usesPackage: !s || s.usesPackage === undefined ? true : !!s.usesPackage,
   }));
+}
+
+function sanitizeBlocks(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const b of list.slice(0, 60)) {
+    if (!b || typeof b !== "object") continue;
+    const id = (b.id && String(b.id)) || crypto.randomUUID();
+    const allDay = !!b.allDay;
+    const timesOk = allDay || (HM_REGEX.test(b.start) && HM_REGEX.test(b.end) && b.start < b.end);
+
+    if (b.type === "weekly") {
+      const days = Array.isArray(b.days) ? b.days.filter((d) => DAY_KEYS.includes(d)) : [];
+      if (!days.length || !timesOk) continue;
+      out.push({
+        id,
+        type: "weekly",
+        days,
+        start: allDay ? "00:00" : b.start,
+        end: allDay ? "23:59" : b.end,
+        allDay,
+      });
+    } else if (b.type === "range") {
+      if (!DATE_REGEX.test(b.fromDate) || !DATE_REGEX.test(b.toDate) || b.fromDate > b.toDate) continue;
+      if (!timesOk) continue;
+      out.push({
+        id,
+        type: "range",
+        fromDate: b.fromDate,
+        toDate: b.toDate,
+        start: allDay ? "00:00" : b.start,
+        end: allDay ? "23:59" : b.end,
+        allDay,
+      });
+    }
+  }
+  return out;
 }
 
 async function slugOwner(slug) {
@@ -112,6 +152,7 @@ router.put("/settings", verifyToken, async (req, res) => {
     if (b.autoConfirm !== undefined) next.autoConfirm = !!b.autoConfirm;
     if (b.workingHours !== undefined) next.workingHours = sanitizeWorkingHours(b.workingHours);
     if (b.serviceTypes !== undefined) next.serviceTypes = sanitizeServiceTypes(b.serviceTypes);
+    if (b.blocks !== undefined) next.blocks = sanitizeBlocks(b.blocks);
 
     if (b.slug !== undefined && b.slug !== null && b.slug !== "") {
       const slug = normalizeSlug(b.slug);

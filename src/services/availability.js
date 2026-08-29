@@ -46,6 +46,61 @@ const ACTIVE_STATUSES_BLOCKING = (status) => {
 };
 
 /**
+ * Expand the trainer's manual "blocks" (kizárások) into concrete time intervals
+ * covering the given range. Blocks are NOT buffer-padded (unlike appointments).
+ *
+ *  weekly: { type:"weekly", days:["mon",...], start:"12:00", end:"13:00", allDay? }
+ *  range:  { type:"range", fromDate:"2026-08-10", toDate:"2026-08-20", allDay:true,
+ *           start?:"09:00", end?:"12:00" }
+ */
+function expandBlocks(blocks, rangeStart, rangeEnd) {
+  if (!Array.isArray(blocks) || !blocks.length) return [];
+  const out = [];
+  const firstDay = rangeStart.startOf("day");
+  const lastDay = rangeEnd.startOf("day");
+
+  const dayInterval = (day, b) => {
+    if (b.allDay) return Interval.fromDateTimes(day.startOf("day"), day.endOf("day"));
+    const f = parseHM(b.start);
+    const t = parseHM(b.end);
+    if ([f.h, f.m, t.h, t.m].some((n) => Number.isNaN(n))) return null;
+    return Interval.fromDateTimes(
+      day.set({ hour: f.h, minute: f.m, second: 0, millisecond: 0 }),
+      day.set({ hour: t.h, minute: t.m, second: 0, millisecond: 0 })
+    );
+  };
+
+  for (const b of blocks) {
+    if (!b || typeof b !== "object") continue;
+
+    if (b.type === "weekly") {
+      const days = Array.isArray(b.days) ? b.days : [];
+      if (!days.length) continue;
+      let d = firstDay;
+      while (d <= lastDay) {
+        if (days.includes(DAY_KEYS[d.weekday % 7])) {
+          const iv = dayInterval(d, b);
+          if (iv && iv.isValid) out.push(iv);
+        }
+        d = d.plus({ days: 1 });
+      }
+    } else if (b.type === "range") {
+      const from = parseLocal(b.fromDate).startOf("day");
+      const to = parseLocal(b.toDate).startOf("day");
+      if (!from.isValid || !to.isValid) continue;
+      let d = from > firstDay ? from : firstDay;
+      const end = to < lastDay ? to : lastDay;
+      while (d <= end) {
+        const iv = dayInterval(d, b);
+        if (iv && iv.isValid) out.push(iv);
+        d = d.plus({ days: 1 });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Compute bookable free slots for a trainer using the "working hours" model.
  *
  * @param {Object}  opts
@@ -89,6 +144,9 @@ function computeFreeSlots({ settings, appointments, fromISO, toISO, serviceDurat
     })
     .filter((iv) => iv && iv.isValid);
 
+  const blocked = expandBlocks(s.blocks, rangeStart, rangeEnd);
+  const blocking = busy.concat(blocked);
+
   const results = [];
   let cursorDay = rangeStart.startOf("day");
   const lastDay = rangeEnd.startOf("day");
@@ -110,7 +168,7 @@ function computeFreeSlots({ settings, appointments, fromISO, toISO, serviceDurat
         const inRange = slotStart >= rangeStart && slotStart >= earliest && slotEnd <= rangeEnd;
         if (inRange) {
           const iv = Interval.fromDateTimes(slotStart, slotEnd);
-          const clashes = busy.some((b) => b.overlaps(iv));
+          const clashes = blocking.some((b) => b.overlaps(iv));
           if (!clashes) results.push({ start: wallClock(slotStart), end: wallClock(slotEnd) });
         }
         slotStart = slotStart.plus({ minutes: slotMinutes });
@@ -151,4 +209,4 @@ function clampNumber(v, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-module.exports = { computeFreeSlots, isSlotBookable, parseLocal, wallClock, ZONE, WALL_FORMAT };
+module.exports = { computeFreeSlots, isSlotBookable, expandBlocks, parseLocal, wallClock, ZONE, WALL_FORMAT };

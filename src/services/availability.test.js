@@ -98,4 +98,42 @@ t("isSlotBookable rejects an already-taken slot", () => {
   assert.strictEqual(r.ok, false);
 });
 
+t("weekly block removes the matching hour every week", () => {
+  const withLunch = {
+    ...settings,
+    workingHours: { wed: [{ start: "09:00", end: "16:00" }] },
+    blocks: [{ type: "weekly", days: ["wed"], start: "12:00", end: "13:00" }],
+  };
+  const slots = computeFreeSlots({
+    settings: withLunch, appointments: [], fromISO: "2026-09-02T00:00", toISO: "2026-09-03T00:00", now,
+  });
+  const starts = slots.map((s) => s.start.slice(11, 16));
+  assert.ok(!starts.includes("12:00"), "12:00 should be blocked");
+  assert.ok(starts.includes("11:00") && starts.includes("13:00"), "surrounding slots stay");
+});
+
+t("all-day range block clears the whole day", () => {
+  const withVacation = {
+    ...settings,
+    workingHours: { wed: [{ start: "09:00", end: "16:00" }] },
+    blocks: [{ type: "range", fromDate: "2026-09-02", toDate: "2026-09-04", allDay: true }],
+  };
+  const slots = computeFreeSlots({
+    settings: withVacation, appointments: [], fromISO: "2026-09-02T00:00", toISO: "2026-09-03T00:00", now,
+  });
+  assert.strictEqual(slots.length, 0);
+});
+
+t("range block outside its dates has no effect", () => {
+  const withVacation = {
+    ...settings,
+    workingHours: { wed: [{ start: "09:00", end: "16:00" }] },
+    blocks: [{ type: "range", fromDate: "2026-10-01", toDate: "2026-10-05", allDay: true }],
+  };
+  const slots = computeFreeSlots({
+    settings: withVacation, appointments: [], fromISO: "2026-09-02T00:00", toISO: "2026-09-03T00:00", now,
+  });
+  assert.ok(slots.length > 0);
+});
+
 console.log(`\n${pass} passed`);
