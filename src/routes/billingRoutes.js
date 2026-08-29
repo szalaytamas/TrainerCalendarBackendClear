@@ -5,6 +5,7 @@ const {
   getSubscriptionV2,
   acknowledgeSubscription,
   summarize,
+  checkCredentials,
 } = require("../services/playBilling");
 
 const router = express.Router();
@@ -67,6 +68,12 @@ router.post("/play/verify", verifyToken, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// GET /api/billing/play/health — no auth; confirms the SA key is usable.
+router.get("/play/health", async (_req, res) => {
+  const result = await checkCredentials();
+  res.status(result.tokenAcquired ? 200 : 503).json(result);
 });
 
 // GET /api/billing/subscription

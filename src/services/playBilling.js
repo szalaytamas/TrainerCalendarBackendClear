@@ -24,6 +24,27 @@ function notConfiguredError() {
   return e;
 }
 
+/**
+ * Cheap credential check: can we mint an access token from the service-account
+ * key? Confirms GOOGLE_PLAY_SA_JSON is present, parseable, and the key is valid.
+ * Does NOT prove the Play Console permission grant — that needs a real token.
+ */
+async function checkCredentials() {
+  const client = getClient();
+  if (!client) return { configured: false, tokenAcquired: false, error: "GOOGLE_PLAY_SA_JSON not set" };
+  try {
+    const token = await client.authorize();
+    return {
+      configured: true,
+      tokenAcquired: !!(token && token.access_token),
+      clientEmail: client.email || null,
+      packageName: packageName(),
+    };
+  } catch (e) {
+    return { configured: true, tokenAcquired: false, error: e.message };
+  }
+}
+
 /** GET purchases.subscriptionsv2 for a purchase token. */
 async function getSubscriptionV2(purchaseToken) {
   const client = getClient();
@@ -93,4 +114,5 @@ module.exports = {
   acknowledgeSubscription,
   summarize,
   tierForProduct,
+  checkCredentials,
 };
