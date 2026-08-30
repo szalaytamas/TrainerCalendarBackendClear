@@ -155,6 +155,57 @@ ${loginUrl}`,
   };
 }
 
+function bookingConfirmedEmail({ trainerName, startISO, endISO }) {
+  const when = formatDateHu(startISO, endISO);
+  return {
+    subject: "Időpontod visszaigazolva",
+    text:
+`Szia!
+
+Az edződ visszaigazolta az időpontod:
+Edző: ${trainerName}
+Időpont: ${when}
+
+Ha mégsem tudsz jönni, mondd le a foglalási fiókodban.`,
+    html:
+`<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;color:#1a1a1a">
+<p>Szia!</p>
+<p>Az edződ <strong>visszaigazolta</strong> az időpontod:</p>
+<p><strong>Edző:</strong> ${escapeHtml(trainerName)}<br>
+<strong>Időpont:</strong> ${escapeHtml(when)}</p>
+<p style="color:#666;font-size:13px">Ha mégsem tudsz jönni, mondd le a foglalási fiókodban.</p>
+</div>`,
+  };
+}
+
+function bookingDeclinedEmail({ trainerName, startISO, endISO, bookingUrl }) {
+  const when = formatDateHu(startISO, endISO);
+  const ctaText = bookingUrl ? `\n\nFoglalj másik időpontot:\n${bookingUrl}` : "";
+  const ctaHtml = bookingUrl
+    ? `<p><a href="${escapeHtml(bookingUrl)}" style="${BTN}">Másik időpont foglalása</a></p>`
+    : "";
+  return {
+    subject: "Időpontkérésed nem fogadható",
+    text:
+`Szia!
+
+Az edződ ezúttal nem tudta fogadni ezt az időpontot:
+Edző: ${trainerName}
+Időpont: ${when}${ctaText}
+
+A bérleted alkalmait ez nem érinti.`,
+    html:
+`<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;color:#1a1a1a">
+<p>Szia!</p>
+<p>Az edződ ezúttal <strong>nem tudta fogadni</strong> ezt az időpontot:</p>
+<p><strong>Edző:</strong> ${escapeHtml(trainerName)}<br>
+<strong>Időpont:</strong> ${escapeHtml(when)}</p>
+${ctaHtml}
+<p style="color:#666;font-size:13px">A bérleted alkalmait ez nem érinti.</p>
+</div>`,
+  };
+}
+
 function bookingCancelledEmail({ trainerName, startISO, endISO }) {
   const when = formatDateHu(startISO, endISO);
   return {
@@ -182,5 +233,7 @@ module.exports = {
   bookingRegisteredEmail,
   magicLinkEmail,
   guestInviteEmail,
+  bookingConfirmedEmail,
+  bookingDeclinedEmail,
   bookingCancelledEmail,
 };

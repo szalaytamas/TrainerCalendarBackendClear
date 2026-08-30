@@ -3,7 +3,13 @@ const admin = require("firebase-admin");
 const crypto = require("crypto");
 const { verifyToken } = require("../middleware/auth");
 const { isProEntitled, bookingRequiresPro } = require("../services/entitlement");
-const { sendEmail, guestInviteEmail } = require("../services/email");
+const { parseLocal, wallClock } = require("../services/availability");
+const {
+  sendEmail,
+  guestInviteEmail,
+  bookingConfirmedEmail,
+  bookingDeclinedEmail,
+} = require("../services/email");
 
 const router = express.Router();
 const db = admin.firestore();
@@ -273,6 +279,49 @@ async function loadOwnedAppointment(id, userId) {
   return { ref, data: doc.data() };
 }
 
+/**
+ * Notify a web-booking guest that the trainer confirmed or declined their
+ * request. No-op for manual appointments (no guest_email). Never touches
+ * package sessions. Failures are swallowed by the caller.
+ */
+async function emailGuestDecision(data, userId, decision) {
+  const to = data.guest_email;
+  if (!to) return;
+
+  const startISO = data.date;
+  let endISO = null;
+  try {
+    const dt = parseLocal(startISO);
+    if (dt.isValid) endISO = wallClock(dt.plus({ minutes: data.durationMin || 60 }));
+  } catch (_) {
+    /* fall back to start-only */
+  }
+
+  const userDoc = await db.collection("users").doc(userId).get();
+  const u = userDoc.exists ? userDoc.data() : {};
+  const trainerName =
+    (u.booking && u.booking.displayName && u.booking.displayName.trim()) ||
+    `${u.forename || ""} ${u.lastname || ""}`.trim() ||
+    "Az edződ";
+
+  const webOrigin = (process.env.PUBLIC_WEB_ORIGIN || "https://foglalas.trainercalendar.hu").replace(/\/$/, "");
+  const slug = u.booking && u.booking.slug;
+  const bookingUrl = slug ? `${webOrigin}/${slug}` : null;
+
+  const mail =
+    decision === "confirmed"
+      ? bookingConfirmedEmail({ trainerName, startISO, endISO })
+      : bookingDeclinedEmail({ trainerName, startISO, endISO, bookingUrl });
+
+  await sendEmail({
+    to,
+    subject: mail.subject,
+    html: mail.html,
+    text: mail.text,
+    replyTo: u.email || undefined,
+  });
+}
+
 // POST /api/booking/requests/:id/approve  → status: confirmed
 // IMPORTANT: never touches package sessions. Deduction stays 100% with the
 // trainer via the attendance checkbox, exactly as for manual appointments.
@@ -285,6 +334,11 @@ router.post("/requests/:id/approve", verifyToken, async (req, res) => {
       return res.status(409).json({ error: "Ez a foglalás már nem függő állapotú." });
     }
     await ref.update({ status: "confirmed" });
+    try {
+      await emailGuestDecision(data, req.userId, "confirmed");
+    } catch (e) {
+      console.error("[booking/approve] guest email failed:", e.message);
+    }
     res.json({ id: ref.id, status: "confirmed", message: "Foglalás elfogadva." });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -301,6 +355,11 @@ router.post("/requests/:id/decline", verifyToken, async (req, res) => {
       return res.status(409).json({ error: "Ez a foglalás már nem függő állapotú." });
     }
     await ref.update({ status: "declined" });
+    try {
+      await emailGuestDecision(data, req.userId, "declined");
+    } catch (e) {
+      console.error("[booking/decline] guest email failed:", e.message);
+    }
     res.json({ id: ref.id, status: "declined", message: "Foglalás elutasítva." });
   } catch (err) {
     res.status(500).json({ error: err.message });
