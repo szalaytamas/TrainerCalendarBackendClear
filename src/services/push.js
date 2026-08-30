@@ -34,12 +34,20 @@ async function notifyUser(uid, { title, body, data }) {
   }
   if (!tokens.length) return { sent: 0 };
 
+  // Data-only message: the Android client builds the notification itself so it
+  // can use a stable per-appointment id (a re-push replaces the earlier card)
+  // and clear it once the trainer has handled the request. A `notification`
+  // block would let the OS post its own uncontrollable, stacking notification.
   const base = {
-    notification: { title, body },
-    data: Object.fromEntries(
-      Object.entries(data || {}).map(([k, v]) => [k, String(v)])
-    ),
-    android: { priority: "high", notification: { channelId: "booking_events" } },
+    data: {
+      title: String(title),
+      body: String(body),
+      channelId: "booking_events",
+      ...Object.fromEntries(
+        Object.entries(data || {}).map(([k, v]) => [k, String(v)])
+      ),
+    },
+    android: { priority: "high" },
   };
 
   const bad = [];
